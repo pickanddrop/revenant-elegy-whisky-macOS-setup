@@ -5,7 +5,7 @@
 #
 # All 52 exports must be present. If any is missing the client dies with
 # "The procedure entry point WTSSendMessageW could not be located".
-# mingw's linker CANNOT emit DLL forwarders from a .def — real stubs are required.
+# mingw's linker CANNOT emit DLL forwarders from a .def, real stubs are required.
 
 CC      := i686-w64-mingw32-gcc
 PREFIX  := $(HOME)/Library/Containers/com.isaacmarovitz.Whisky/Bottles/$(BOTTLE)

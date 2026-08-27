@@ -1,151 +1,74 @@
 # Troubleshooting
 
-Everything here was observed on real hardware (MacBook Air M2, macOS 26.6.2, 2026-08-27)
-unless marked otherwise.
+Find your symptom, apply the fix. Observed on macOS 26.6.2 (M2), 2026-08-27.
 
-## The seven walls, in the order they appeared
-
-Each had to fall before the next became visible. **Two were misdiagnosed as anti-cheat
-blocks and were not** — that is the single most expensive lesson in this repo.
-
-### 1. "Game EXE file corrupted!" on wine-7.7 — *false alarm*
-
-**Symptom:** Gepard rejects the client immediately on the correct Wine version.
-
-**Cause:** the environment was incomplete — msync on, no native MSVC overrides. The
-verdict was recorded before the configuration was finished, and sent the investigation
-down a multi-hour detour through three other Wine versions.
-
-**Fix:** complete the environment (Step 12) before concluding anything about integrity.
-With it, wine-7.7 passes.
-
-**Lesson:** do not promote an early failure to a conclusion about anti-cheat.
-
-### 2 & 3. wine-11.15 / wine-10.0 — stack overflow in a Gepard thread
-
-**Symptom:** integrity passes, the launcher UI renders, the client loads the full game
-(~470–650 MB), then dies at ~16 s — or busy-spins at 84% and never opens a window.
-
-```
-err:virtual:virtual_setup_exception stack overflow 960 bytes addr 0x0 stack 0x44b0c40
-NtRaiseException Exception frame is not in stack limits
-```
-
-**Cause:** Wine's **new/experimental wow64** cannot grow a normal
-1 MB-reserve / 4 KB-commit thread stack past its first guard page under Rosetta. Gepard
-spawns such a thread.
-
-**Fix: use wine-7.7**, whose old `x86_32on64` path grows the stack correctly.
-
-**Do not "fix" it by patching the client** — see the boxed rule below.
-
-### 4. Infinite 87% CPU spin, no window
-
-**Cause:** Gepard's threads deadlock under msync/esync.
-
-**Fix:** `WINEMSYNC=0 WINEESYNC=0`.
-
-Toggling this requires **fully killing the wineserver** (`wineserver -k`), or you get
-`Server is running with WINEMSYNC but this process is not` and nothing starts.
-
-### 5. Infinite file-poll hang
-
-**Symptom:** full game loads, then one thread pins a core forever with no window.
-
-**Evidence:** `WINEDEBUG=+file` captured **217,482** `GetFileAttributesW("Setup.exe")`
-calls in 18 seconds.
-
-**Fix:** `cp opensetup.exe Setup.exe` (Step 8).
-
-### 6. `WTSEnumerateProcessesA` returns NULL
-
-**Cause:** wine-7.7 stubs it; Gepard walks a NULL process list.
-
-**Fix:** the replacement `wtsapi32.dll` in `tools/wtsapi32/` (Step 10).
-
-### 7. The real final blocker — DXVK, not Gepard
-
-**Symptom:** `0xc0000005` at `eip 0x06315f6b`, an address inside `gepard.dll`'s mapped
-range. Deterministic, identical stack every run. Reads exactly like an anti-cheat block.
-
-```
-[mvk-error] VK_ERROR_FEATURE_NOT_PRESENT: vkCreateDevice(): Requested feature is not available
-err:   DxvkAdapter: Failed to create device
-```
-
-**Cause:** this runtime's MoltenVK reports `bufferDeviceAddress: 0` and
-`timelineSemaphore: 0`. Every DXVK build hard-requires both, so device creation fails, DXVK
-hands back a NULL device, and the client dereferences it — inside a Gepard callback, hence
-the misleading address.
-
-**Fix:** force builtin wined3d — `d3d9,dxgi,d3d10core,d3d11=b`.
-
----
-
-> ## The rule that outranks the rest
->
-> **`client.exe` must remain byte-identical.** Gepard hashes its PE header.
->
-> Pre-committing the stack (`SizeOfStackCommit` `0x1000` → `0xFF000`) **does** cleanly fix
-> wall #2/#3 — the client stops crashing and idles correctly. It also **immediately**
-> produces *"Game EXE file corrupted!"*. The crash-fix and the integrity check are mutually
-> exclusive on the client side; the fix belongs in Wine, not the binary.
->
-> Verify with `shasum -a 256` against the copy inside the distribution archive.
-
----
-
-## Dead ends
-
-Tried and failed. Do not repeat.
-
-| Attempt | Result |
-|---|---|
-| DXVK 3.0.2 | Requires Vulkan 1.3; client dies instantly |
-| DXVK 1.9.4 | Same `FEATURE_NOT_PRESENT` — the limit is MoltenVK, not DXVK's version |
-| `dxvk.conf` tuning | No effect; the missing features are hard requirements |
-| Graft wine-10/11 MoltenVK onto wine-7.7 | `err:vulkan:wine_vk_init Failed to load Wine graphics driver` — winevulkan ABI mismatch |
-| Patch `client.exe` stack commit | Fixes the crash, triggers "corrupted" |
-| Delete `d3d9.dll` from the prefix | `c0000135`; the override alone is sufficient |
-| frankea Whisky **v3.1.1** (sought wine-9.x) | Actually ships **wine-11.0** — their app version does not track the Wine version |
-| Partial-range download to probe a runtime's version | gzip needs the whole stream; download fully or don't bother |
-
-## Everyday gotchas
+## Client will not start
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Settings revert after quitting | The client **rewrites `OptionInfo.lua` on exit** | Quit fully *before* editing it |
-| Game looks fullscreen despite `ISFULLSCREENMODE=0` | Client reset WIDTH/HEIGHT to the panel's full resolution — a screen-sized *window* | Set `WIDTH`/`HEIGHT` to something smaller (1600×900) |
-| Nothing launches, no error | Stale wineserver in the wrong sync mode | `wineserver -k`, then relaunch. Both `.app`s do this automatically |
-| Patcher's START button does nothing | Two patchers running | Kill all, launch one. The patcher `.app` does this automatically |
-| Silent audio despite volume 100 | `CmdOnOffList["/bgm"]` / `["/sound"]` are `0` | Set both to `1`, or type `/bgm` and `/sound` in game chat |
-| `The procedure entry point WTSSendMessageW could not be located` | Replacement `wtsapi32.dll` missing exports | Rebuild; all 52 required |
-| Generic document icon on the `.app` | No `CFBundleIconFile`, or no icon in `Contents/Resources` | Re-run `tools/build-apps.sh` |
-| Cursor disappears over the window | `MouseExclusive=1` | Set to `0` |
+| "Game EXE file corrupted!" | Either `client.exe` was modified, or the environment is incomplete (msync on, missing MSVC overrides) | Restore `client.exe` byte-for-byte, then apply the full environment from step 12 |
+| Loads the whole game, then crashes around 16s | Wine 10 or 11. Their experimental wow64 cannot grow a Gepard thread's stack: `stack overflow 960 bytes addr 0x0` | Use wine-7.7, which has the older `x86_32on64` path |
+| Runs at ~87% CPU forever, no window | Gepard's threads deadlock under msync/esync | `WINEMSYNC=0 WINEESYNC=0`. Kill the wineserver first (`wineserver -k`) or the change does not take |
+| One thread pins a core, no window | The client is polling for `Setup.exe`, which it does not ship | `cp opensetup.exe Setup.exe` |
+| Crash at `0xc0000005`, address inside `gepard.dll` | DXVK could not create a D3D9 device and returned NULL. Looks like anti-cheat, is not | Force builtin wined3d: `d3d9,dxgi,d3d10core,d3d11=b` |
+| `page fault on write access to 00000128` | `DX9DEVICENAME` is `.DISPLAY1`, not a real device, so D3D9 returned NULL | Set it to `\\.\DISPLAY1` (four backslashes, dot, two backslashes in the raw file) |
+| "Unhandled illegal instruction" from `opensetup.exe` | Rosetta cannot translate alternate x87 `FCOM`/`FCOMP` encodings | Run `tools/scan-x87.py` and patch the sites it reports |
+| `The procedure entry point WTSSendMessageW could not be located` | The replacement `wtsapi32.dll` is missing exports | Rebuild it. All 52 exports are required |
+| `c0000135` | A required DLL is missing, or iCloud moved the game folder mid-install | Keep the game in `~/Games`, never Desktop or Documents. Do not delete DXVK's DLLs from the prefix; the override is enough |
+| Nothing launches, no error at all | A stale wineserver is running in the wrong sync mode | `wineserver -k`, then launch again |
 
-**Harmless log noise** — all expected, none worth chasing:
-`RoGetActivationFactory ... Windows.UI.ViewManagement.UISettings` (×2, the patcher's
-WebView2 theme probe), `wldap32 No libldap support`, `winebth` driver failure,
-`ca_channel_layout_to_channel_mask Unhandled channel 0xffffffff`.
+## Once it runs
 
----
+| Symptom | Cause | Fix |
+|---|---|---|
+| Settings revert after you quit | The client rewrites `OptionInfo.lua` on exit | Quit fully before editing that file |
+| Looks fullscreen even with `ISFULLSCREENMODE=0` | The client reset the size to your full panel resolution, so it is a screen-sized window | Set `WIDTH` and `HEIGHT` smaller, for example 1600x900 |
+| No sound, volume already at 100 | `CmdOnOffList["/bgm"]` and `["/sound"]` are `0` | Set both to `1`, or type `/bgm` and `/sound` in chat |
+| Cursor vanishes over the window | `MouseExclusive` is `1` | Set it to `0` |
+| Patcher's START button does nothing | Two patchers are running | Quit both, launch one |
+| Launcher app shows a blank document icon | The icon is missing from the bundle | Re-run `tools/build-apps.sh` |
 
-## When it is genuinely the anti-cheat
+## Log noise you can ignore
 
-Not every wall is a bug on your side.
+These appear in normal runs and mean nothing is wrong:
 
-Gepard has a **server-side option** governing whether Wine clients are permitted. Where a
-server has it switched off, the client will run, `gepard.dll` will initialise, and the
-connection to Gepard's license server will be **closed by the remote end** — typically
-surfacing as a `Gepard::GT Code` error rather than a crash. A useful discriminator: check
-whether a TCP connection to the license server is actually established and then dropped
-(`lsof -p <pid> -i`, looking for `CLOSE_WAIT`) with the local firewall confirmed off.
+```
+err:combase:RoGetActivationFactory ... Windows.UI.ViewManagement.UISettings
+err:wldap32:DllMain No libldap support, expect problems
+err:ntoskrnl:ZwLoadDriver ... winebth
+fixme:coreaudio:ca_channel_layout_to_channel_mask Unhandled channel 0xffffffff
+```
 
-That situation is a **server-side refusal of the environment**, and only that server's
-operators can change it. The correct response is to ask them — not to patch `gepard.dll`,
-redirect the license host, or otherwise defeat the check. This repo will not help with
-that, and nothing in it does.
+## Things that do not work
 
-Distinguishing the two cases is the whole skill: **wall #7 above looked exactly like an
-anti-cheat block and was a graphics bug.** Exhaust the environment before concluding a
-server has refused you.
+Do not spend time on these:
+
+| Attempt | Result |
+|---|---|
+| DXVK 3.0.2 | Needs Vulkan 1.3, client dies instantly |
+| DXVK 1.9.4 | Same feature error. The limit is MoltenVK, not DXVK's version |
+| `dxvk.conf` tuning | No effect. The missing features are hard requirements |
+| Copying a newer MoltenVK into wine-7.7 | `Failed to load Wine graphics driver`, winevulkan ABI mismatch |
+| Patching `client.exe` stack commit | Stops the crash, immediately trips the integrity check |
+| Deleting `d3d9.dll` from the prefix | `c0000135`. The override alone is enough |
+| Picking a Whisky fork by its app version | Those version numbers do not track the Wine version inside |
+
+## Telling a real anti-cheat block from a local bug
+
+Gepard has a server-side setting that decides whether Wine clients are allowed. If a
+server has it off, the client will start, `gepard.dll` will initialise, and the connection
+to Gepard's license server will be closed by the remote end, usually surfacing as a
+`Gepard::GT Code` error rather than a crash.
+
+To check, find the client's PID and look at its connections while it starts:
+
+```sh
+lsof -p <pid> -i -a -nP
+```
+
+A connection that establishes and then sits in `CLOSE_WAIT`, with your local firewall
+confirmed off, means the server refused the environment. Only that server's operators can
+change that. Ask them.
+
+Before concluding that, rule out everything above first. The DXVK failure in this document
+crashes inside `gepard.dll` and looks exactly like an anti-cheat block.

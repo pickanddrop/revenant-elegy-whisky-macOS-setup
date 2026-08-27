@@ -1,5 +1,5 @@
 #!/bin/zsh
-# Revenant Elegy on macOS — working configuration (wine-7.7 + builtin wined3d)
+# Revenant Elegy on macOS, working configuration (wine-7.7 + builtin wined3d)
 WHISKY="/Applications/Whisky.app/Contents/Resources/WhiskyCmd"
 eval "$("$WHISKY" shellenv ro)"
 

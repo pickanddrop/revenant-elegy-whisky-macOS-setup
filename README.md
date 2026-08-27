@@ -1,69 +1,40 @@
-# revenant-elegy-whisky-macOS-setup
+# Revenant Elegy on macOS (Apple Silicon)
 
-**A Gepard Shield 3.0 + Themida-packed Ragnarok Online client running on an Apple Silicon
-Mac — windowed, with audio, launched from a Dock icon.**
+Run the Revenant Elegy Ragnarok Online client on an Apple Silicon Mac.
 
-**Status: working.** Verified 2026-08-27 on a MacBook Air M2, macOS 26.6.2 (arm64), 8 GB.
+The client is 32-bit Windows code protected by Gepard Shield 3.0 and packed with
+Themida, so most standard Wine setups fail on it. This repo is the configuration that
+works, plus the tools to apply it.
 
-[`SKILL.md`](./SKILL.md) is written *for an AI coding agent* to read and execute. Hand it
-over, say "set up the Revenant Elegy client," and it drives the whole install, stopping for
-approval as it goes. A human can follow it just as well — it's ordinary prose with commands.
+Tested on macOS 26.6.2 (M2) on 2026-08-27.
 
----
+## Install
 
-## Why this is hard
+You need the client archive from the server's official download page, and about 15 GB
+free.
 
-The client is 32-bit x86 Windows code, protected two ways at once:
+**If you use a coding agent:** hand it [`SKILL.md`](./SKILL.md) and ask it to set up the
+client. It runs the whole install and checks its own work.
 
-- **Gepard Shield 3.0** — anti-cheat that spawns its own threads, hashes the executable's
-  headers, and checks the environment around it.
-- **Themida / WinLicense** — a commercial packer, so the real code only exists in memory
-  after it unpacks itself.
+**By hand:** follow [`SKILL.md`](./SKILL.md) top to bottom. It is 14 steps with the exact
+commands.
 
-Running that on Apple Silicon means three translation layers stacked on each other: Windows
-calls to macOS (Wine), 32-bit to 64-bit (WoW64), and Intel to ARM (Rosetta). Each layer has
-edges the client falls off, and several of the failures **look like anti-cheat blocks when
-they are not** — the most expensive one in this repo crashed at an address inside
-`gepard.dll` and turned out to be a graphics bug.
+Either way, the last step builds a launcher app you double-click to play.
 
-## The one-paragraph version
+## What makes it work
 
-Use **wine-7.7**, because Wine's newer *experimental wow64* cannot grow a Gepard thread's
-stack past its first guard page. Force **builtin wined3d**, because this runtime's MoltenVK
-lacks two features every DXVK build hard-requires, and DXVK's NULL device gets dereferenced
-inside a Gepard callback — which reads as an anti-cheat block and isn't one. Turn **msync
-off**, create a **`Setup.exe`** the client polls for 12,000 times a second, fix a **display
-device name** the client ships broken, and supply a **real `wtsapi32.dll`** because Wine
-stubs the one function Gepard calls. Then never touch `client.exe` again.
+Five things. Each one is required, and skipping any of them produces a failure that looks
+like something else.
 
-## Quick start
-
-```sh
-git clone https://github.com/pickanddrop/revenant-elegy-whisky-macOS-setup
-cd revenant-elegy-whisky-macOS-setup
-```
-
-Then either hand `SKILL.md` to a coding agent, or follow it yourself. Once installed:
-
-```sh
-./tools/build-apps.sh "$HOME/Games/Revenant Elegy"
-```
-
-That produces two double-clickable apps with the game's own icon:
-
-| App | |
+| Setting | Why |
 |---|---|
-| **Revenant Elegy Patcher** | Runs the official patcher; its START button launches the game. **Normal use** — so you never miss a patch. |
-| **Revenant Elegy** | Straight to `client.exe`, skipping the patch check. Faster, but won't catch updates. |
+| **wine-7.7**, not newer | Newer Wine uses the experimental wow64 path, which cannot grow a Gepard thread's stack. The client loads fully, then crashes. |
+| **Builtin wined3d**, not DXVK | This runtime's MoltenVK is missing two features DXVK requires, so DXVK hands the client a NULL D3D9 device. The crash lands inside `gepard.dll`, so it looks like anti-cheat. It is not. |
+| **msync and esync off** | Gepard's threads deadlock under them and spin at 87% CPU with no window. |
+| **A file named `Setup.exe`** | The client polls for it about 12,000 times a second and never opens a window until it exists. Copy `opensetup.exe` to `Setup.exe`. |
+| **Fix `DX9DEVICENAME`** | The client ships `.DISPLAY1`, which is not a real device. D3D9 returns NULL and the client crashes on it. It needs `\\.\DISPLAY1`. |
 
-## The working configuration
-
-| | |
-|---|---|
-| Wine | **7.7** — the old `x86_32on64` path. Newer Wine breaks Gepard. Do not "upgrade". |
-| Graphics | **builtin wined3d**. Not DXVK. |
-| Sync | **msync/esync off**. |
-| `client.exe` | **Byte-identical. Never modified.** |
+The launch environment:
 
 ```sh
 export WINEMSYNC=0 WINEESYNC=0
@@ -71,41 +42,46 @@ export WINEDLLOVERRIDES="d3d9,dxgi,d3d10core,d3d11=b;msvcp140,vcruntime140,concr
 export WINE_CPU_TOPOLOGY=4:0,1,2,3
 ```
 
-## What's here
+## Do not modify client.exe
 
-| File | |
+Gepard hashes the executable's headers. Any edit produces "Game EXE file corrupted!".
+
+This matters because one tempting fix actually works: pre-committing the stack in the PE
+header stops the crash on newer Wine. It also trips the integrity check immediately. Fix
+the Wine version instead.
+
+## If something breaks
+
+[`TROUBLESHOOTING.md`](./TROUBLESHOOTING.md) lists each symptom with its cause and fix,
+including the failures that look like anti-cheat blocks but are not.
+
+## Tools
+
+| | |
 |---|---|
-| [`SKILL.md`](./SKILL.md) | The runbook. 14 steps, progress table, verification gates. |
-| [`TROUBLESHOOTING.md`](./TROUBLESHOOTING.md) | Symptom → cause → fix, the seven walls in order, and every dead end so they aren't retried. |
-| [`NOTICE.md`](./NOTICE.md) | Verification ledger. Every claim carries a status, including what is *not* proven. |
-| `tools/scan-x87.py` | Finds Rosetta-untranslatable x87 sites in any PE. Offsets differ per build — always rescan. |
-| `tools/patch-optioninfo.py` | Rewrites `OptionInfo.lua` — display device, windowed size, audio. |
-| `tools/wtsapi32/` | Source + Makefile for the replacement `wtsapi32.dll`. |
-| `tools/build-apps.sh` | Builds both `.app` bundles with the extracted icon. |
-| `tools/play.sh` | Terminal launcher carrying the full environment. |
+| `tools/scan-x87.py` | Finds the x87 instructions Rosetta cannot translate. Offsets differ between builds, so scan rather than copying offsets from anywhere. |
+| `tools/patch-optioninfo.py` | Sets the display device, window size, and audio in `OptionInfo.lua`. |
+| `tools/wtsapi32/` | Source and Makefile for a replacement `wtsapi32.dll`. |
+| `tools/build-apps.sh` | Builds the launcher apps with the game's icon. |
+| `tools/play.sh` | Launches from a terminal with the full environment. |
 
-## How claims are verified
+## Known limits
 
-Nothing here is written down as working because it sounded right. Every claim in
-[`NOTICE.md`](./NOTICE.md) carries a status, and a `VERIFIED` tag requires a command, its
-actual output, and a date. One claim is tagged `NEW-UNVERIFIED` because it was never
-re-tested in isolation — recorded honestly rather than quietly assumed.
+- Verified on one machine (M2, macOS 26.6.2). The MoltenVK findings depend on the GPU
+  driver, so other hardware may differ.
+- Verified against one client build. A server patch can move the byte offsets, which is
+  why `scan-x87.py` exists.
+- The replacement `wtsapi32.dll` was added before the real cause of the final crash was
+  found, and never tested in isolation. It may not be necessary.
+- Tested to the login screen. Long sessions, map changes, and WoE-scale load are not
+  characterised.
 
-The limits are stated too: one machine, one day, one client build. A server patch can move
-the byte offsets, which is exactly why `tools/scan-x87.py` exists instead of a hardcoded
-list.
+## Scope
 
-## Scope, and a deliberate limit
-
-This repo makes a legitimately-obtained client **run** on a Mac. It does **not** defeat,
-disable, patch, or evade anti-cheat, and it will not help you do so.
-
-That line is load-bearing rather than decorative. Pre-committing the client's stack in the
-PE header genuinely fixes a crash — and is documented here as **forbidden**, because Gepard
-hashes that header and doing it is tampering. Where a server's Gepard configuration refuses
-Wine outright, the answer is to ask that server's operators, not to work around the check.
+This repo makes a client you already have run on a Mac. It does not defeat, disable, or
+evade anti-cheat, and it will not help you do that. If a server's Gepard configuration
+refuses Wine, that is the operator's setting to change, not something to work around.
 
 ## License
 
-MIT — see [`LICENSE`](./LICENSE). Portions are derived from prior MIT-licensed work on
-running RO clients under Whisky, credited there.
+MIT, see [`LICENSE`](./LICENSE).
