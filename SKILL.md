@@ -7,7 +7,7 @@ description: Installs and configures the Revenant Elegy Ragnarok Online client (
 # Revenant Elegy on Apple Silicon
 
 Read this file top to bottom before running anything. It is written for an AI agent to
-execute, stopping for the user's approval at each phase.
+execute, stopping for the user's approval at each phase. A human can follow it directly.
 
 ## 0. Operating principles
 
@@ -108,7 +108,8 @@ defaults read /Applications/Whisky.app/Contents/Info.plist CFBundleShortVersionS
 > past its first 4 KB guard page (`stack overflow 960 bytes addr 0x0`). wine-7.7 uses the
 > old `x86_32on64` path and does not have this bug. Do not "upgrade" it.
 
-Whisky's own CDN (`getwhisky.app/Libraries.zip`) is **dead (404)**. Use the mirror:
+Whisky's own runtime CDN (`getwhisky.app/Libraries.zip`) is **dead (404)**, so the runtime
+must come from a mirror:
 
 ```sh
 SUP="$HOME/Library/Application Support/com.isaacmarovitz.Whisky"
@@ -259,9 +260,9 @@ All 52 exports are required — a missing one produces *"The procedure entry poi
 WTSSendMessageW could not be located"*. mingw's linker **cannot** emit DLL forwarders from
 a `.def`; the source uses real stub functions for that reason.
 
-> Honest status: this was fixed *before* the true final blocker (Step 12) was identified,
-> so it is unproven whether it is still strictly required. It is harmless and is part of the
-> verified-working configuration. See `NOTICE.md`.
+> Honest status: this was added *before* the true final blocker (Step 12) was identified,
+> and was never re-tested without it. It is harmless and part of the verified-working
+> configuration, but its individual necessity is unproven. See `NOTICE.md`.
 
 ## Step 11 — Registry
 

@@ -132,24 +132,20 @@ WebView2 theme probe), `wldap32 No libldap support`, `winebth` driver failure,
 
 ## When it is genuinely the anti-cheat
 
-Not every wall is a bug on your side. **Divine Armaments**, tested on this same machine and
-stack, is not playable under Wine:
+Not every wall is a bug on your side.
 
-```
-Gepard::GT Code: 301::0::0   "Gepard can't validate license on the server!"
-```
+Gepard has a **server-side option** governing whether Wine clients are permitted. Where a
+server has it switched off, the client will run, `gepard.dll` will initialise, and the
+connection to Gepard's license server will be **closed by the remote end** — typically
+surfacing as a `Gepard::GT Code` error rather than a crash. A useful discriminator: check
+whether a TCP connection to the license server is actually established and then dropped
+(`lsof -p <pid> -i`, looking for `CLOSE_WAIT`) with the local firewall confirmed off.
 
-The client runs, `gepard.dll` initialises, and Gepard opens a TCP connection to its license
-server `139.99.40.25:6700` — and **the server immediately closes it** (observed in
-`CLOSE_WAIT`). The local macOS firewall was disabled; the other documented license IP,
-`185.61.138.117`, is unreachable. So the license server receives the request, decides, and
-refuses.
+That situation is a **server-side refusal of the environment**, and only that server's
+operators can change it. The correct response is to ask them — not to patch `gepard.dll`,
+redirect the license host, or otherwise defeat the check. This repo will not help with
+that, and nothing in it does.
 
-That is a **server-side refusal of the Wine environment**. Gepard has a server-side option
-to permit Wine clients; only the operator can enable it. The correct response is to ask that
-server's staff — not to patch `gepard.dll`, redirect the license host, or otherwise defeat
-the check. This repo will not help with that, and nothing in it does.
-
-Distinguishing the two cases is the whole skill: **wall #7 looked exactly like this and was
-a graphics bug.** Check the environment exhaustively before concluding a server has
-refused you.
+Distinguishing the two cases is the whole skill: **wall #7 above looked exactly like an
+anti-cheat block and was a graphics bug.** Exhaust the environment before concluding a
+server has refused you.
