@@ -1,0 +1,9 @@
+*.dll
+*.exe
+*.grf
+*.rar
+*.zip
+*.tar.gz
+.DS_Store
+build/
+__pycache__/
